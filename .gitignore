@@ -1,0 +1,87 @@
+# 編譯產生的檔案
+*.o
+*.exe
+*.dll
+*.pyc
+*.class
+
+# 作業系統產生的檔案
+.DS_Store
+Thumbs.db
+
+# IDE產生的檔案
+.idea/
+*.suo
+*.user
+*.swp
+
+# 日誌檔案
+*.log
+
+# 敏感資訊
+config.ini
+secrets.txt
+*.pem
+
+# node.js
+node_modules/
+
+# Python
+__pycache__/
+venv/
+
+# 其他
+.env # 環境變數檔案
+
+# 編譯產生的檔案
+*.exe
+*.dll
+*.pdb
+*.obj
+*.suo
+*.user
+*.userprefs
+*.cache
+*.ilk
+*.log
+*.bak
+*.tmp
+*.vspscc
+*.vssscc
+
+# Visual Studio 產生的檔案
+.vs/
+bin/
+obj/
+packages/
+*.csproj.user
+*.sln.docstates
+*.vsproj.user
+*.vssscc
+*.vsmdi
+*.testsettings
+*.local
+*.DotSettings.user
+*.DotSettings
+
+# NuGet 產生的檔案
+packages/
+*.nupkg
+*.nuget/
+
+# Rider 產生的檔案
+.idea/
+*.iml
+*.iws
+
+# 其他
+.DS_Store
+Thumbs.db
+[Bb]in/
+[Oo]bj/
+*.swp
+*.lock.json
+*.DotSettings.user
+*.DotSettings
+.github/
+.vscode/
