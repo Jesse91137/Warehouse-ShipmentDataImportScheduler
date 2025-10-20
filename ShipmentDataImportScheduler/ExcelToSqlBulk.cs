@@ -3,6 +3,8 @@ using System.Data;
 using Microsoft.Data.SqlClient;
 using System.Globalization;
 
+namespace ShipmentDataImportScheduler;
+
 /// <summary>
 /// 提供將從 Excel 轉換而來的 <see cref="DataTable"/> 使用 <see cref="SqlBulkCopy"/> 匯入到 SQL Server 的功能。
 /// </summary>
