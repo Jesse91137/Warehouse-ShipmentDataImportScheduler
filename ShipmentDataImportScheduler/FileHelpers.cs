@@ -7,8 +7,16 @@ using Microsoft.Extensions.Logging; // 引入日誌記錄相關的命名空間
 /// 這個類別將常見的檔案處理模式封裝成簡單、可重複使用的方法，
 /// 以減少呼叫端對錯誤處理與重試邏輯的負擔。
 /// </remarks>
-public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案操作輔助方法
+
+namespace ShipmentDataImportScheduler;
+
+/// <summary>
+/// 靜態類別，封裝檔案操作輔助方法。
+/// </summary>
+public static class FileHelpers
 {
+
+    #region === 同步檔案複製與重試 ===
     /// <summary>
     /// 複製來源檔案到目的地；若複製失敗，會依設定次數重試，採用簡單的指數退避（exponential backoff）。
     /// </summary>
@@ -30,9 +38,9 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
     /// </example>
     public static void CopyFileWithRetry(string source, string destination, int retries = 3, int baseDelayMs = 500)
     {
-        if (source is null) throw new ArgumentNullException(nameof(source));
-        if (destination is null) throw new ArgumentNullException(nameof(destination));
-        if (retries < 1) retries = 1; // 若重試次數小於 1，則設為 1
+        if (string.IsNullOrWhiteSpace(source)) throw new ArgumentNullException(nameof(source));
+        if (string.IsNullOrWhiteSpace(destination)) throw new ArgumentNullException(nameof(destination));
+        if (retries < 1) retries = 1;
 
         // 若來源與目的地相同，直接返回以避免 lock 與不必要的 IO
         try
@@ -46,44 +54,43 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
         if (!File.Exists(source)) throw new FileNotFoundException("Source file not found", source);
 
         const int bufferSize = 1024 * 64; // 64KB
-        const int maxDelayMs = 30_000; // 延遲上限
-        var rnd = new Random();
+        const int maxDelayMs = 30_000;
+        // 使用 static Random 以減少資源消耗
+        static int GetJitter(int delay) => Random.Shared.Next(0, Math.Min(100, Math.Max(1, delay / 10)));
 
-        for (int attempt = 1; attempt <= retries; attempt++)
+        for (var attempt = 1; attempt <= retries; attempt++)
         {
             try
             {
-                // 使用 FileStream 做同步複製以利大型檔案效能控制（SequentialScan）
                 using var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, FileOptions.SequentialScan);
                 using var dst = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, FileOptions.None);
                 src.CopyTo(dst, bufferSize);
                 return;
             }
-            catch (IOException ex) // 常見可重試的 IO 錯誤（例如被鎖定）
+            catch (IOException) when (attempt < retries)
             {
-                if (attempt == retries)
-                    throw new IOException($"Copy failed after {retries} attempts: {ex.Message}", ex);
-                // 指數退避 + 小量 jitter，並限制最大延遲
                 int multiplier = 1 << (attempt - 1);
                 int delay = Math.Min(baseDelayMs * multiplier, maxDelayMs);
-                int jitter = rnd.Next(0, Math.Min(100, Math.Max(1, delay / 10)));
-                Thread.Sleep(delay + jitter);
+                Thread.Sleep(delay + GetJitter(delay));
             }
-            catch (UnauthorizedAccessException) // 權限問題通常不是重試能解的
+            catch (UnauthorizedAccessException)
             {
                 throw;
             }
-            catch (Exception ex) // 其他例外視為不可重試（保守處理）
+            catch (Exception) when (attempt < retries)
             {
-                if (attempt == retries)
-                    throw new Exception($"Copy failed after {retries} attempts: {ex.Message}", ex);
-                // 小延遲再重試
-                int delay = Math.Min(baseDelayMs, maxDelayMs);
-                Thread.Sleep(delay);
+                Thread.Sleep(Math.Min(baseDelayMs, maxDelayMs));
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Copy failed after {retries} attempts: {ex.Message}", ex);
             }
         }
     }
+    #endregion
 
+
+    #region === 非同步檔案複製與重試 ===
     /// <summary>
     /// 非同步版本的複製函式，避免阻塞執行緒。
     /// </summary>
@@ -98,11 +105,10 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
     /// <exception cref="Exception">重試失敗時拋出，包含原始例外。</exception>
     public static async Task CopyFileWithRetryAsync(string source, string destination, int retries = 3, int baseDelayMs = 500)
     {
-        if (source is null) throw new ArgumentNullException(nameof(source));
-        if (destination is null) throw new ArgumentNullException(nameof(destination));
-        if (retries < 1) retries = 1; // 若重試次數小於 1 則設為 1
+        if (string.IsNullOrWhiteSpace(source)) throw new ArgumentNullException(nameof(source));
+        if (string.IsNullOrWhiteSpace(destination)) throw new ArgumentNullException(nameof(destination));
+        if (retries < 1) retries = 1;
 
-        // 若來源與目的地相同，直接返回以避免 lock 與不必要的 IO
         try
         {
             var srcFull = Path.GetFullPath(source);
@@ -113,42 +119,43 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
 
         if (!File.Exists(source)) throw new FileNotFoundException("Source file not found", source);
 
-        const int bufferSize = 1024 * 64; // 64KB buffer
+        const int bufferSize = 1024 * 64;
         const int maxDelayMs = 30_000;
-        var rnd = new Random();
+        static int GetJitter(int delay) => Random.Shared.Next(0, Math.Min(100, Math.Max(1, delay / 10)));
 
-        for (int attempt = 1; attempt <= retries; attempt++) // 依重試次數循環
+        for (var attempt = 1; attempt <= retries; attempt++)
         {
             try
             {
-                // Use FileStream copy to allow async IO; use SequentialScan and larger buffer for better throughput on large files
-                using var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, FileOptions.SequentialScan); // 開啟來源檔案流
-                using var dst = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, FileOptions.None); // 開啟目的地檔案流
-                await src.CopyToAsync(dst, bufferSize).ConfigureAwait(false); // 非同步複製檔案內容
-                return; // 複製成功則結束方法
+                using var src = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, FileOptions.SequentialScan);
+                using var dst = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize, FileOptions.None);
+                await src.CopyToAsync(dst, bufferSize).ConfigureAwait(false);
+                return;
             }
-            catch (IOException ex) // 可重試的 IO 問題
+            catch (IOException) when (attempt < retries)
             {
-                if (attempt == retries)
-                    throw new IOException($"Copy failed after {retries} attempts: {ex.Message}", ex);
                 int multiplier = 1 << (attempt - 1);
                 int delay = Math.Min(baseDelayMs * multiplier, maxDelayMs);
-                int jitter = rnd.Next(0, Math.Min(100, Math.Max(1, delay / 10)));
-                await Task.Delay(delay + jitter).ConfigureAwait(false);
+                await Task.Delay(delay + GetJitter(delay)).ConfigureAwait(false);
             }
-            catch (UnauthorizedAccessException) // 權限錯誤不可重試
+            catch (UnauthorizedAccessException)
             {
                 throw;
             }
-            catch (Exception ex) // 其他例外視為不可重試（保守處理）
+            catch (Exception) when (attempt < retries)
             {
-                if (attempt == retries)
-                    throw new Exception($"Copy failed after {retries} attempts: {ex.Message}", ex);
-                await Task.Delay(baseDelayMs).ConfigureAwait(false);
+                await Task.Delay(Math.Min(baseDelayMs, maxDelayMs)).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Copy failed after {retries} attempts: {ex.Message}", ex);
             }
         }
     }
+    #endregion
 
+
+    #region === 安全刪除檔案（無日誌） ===
     /// <summary>
     /// 安全刪除指定路徑的檔案；若檔案不存在或刪除失敗，方法會吞掉例外並靜默返回。
     /// </summary>
@@ -165,16 +172,18 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
     /// </example>
     public static void SafeDelete(string path)
     {
-        if (path is null) return;
+        if (string.IsNullOrWhiteSpace(path)) return;
         try
         {
-            // 直接刪除，File.Delete 在檔案不存在時會拋出 FileNotFoundException
             File.Delete(path);
         }
         catch (FileNotFoundException) { /* 已不存在，忽略 */ }
         catch { /* 其他錯誤在此版本選擇靜默忽略 */ }
     }
+    #endregion
 
+
+    #region === 安全刪除檔案（有日誌） ===
     /// <summary>
     /// 安全刪除指定路徑的檔案，並可選擇記錄失敗訊息。
     /// </summary>
@@ -185,15 +194,16 @@ public static class FileHelpers // 定義靜態類別 FileHelpers，封裝檔案
     /// </remarks>
     public static void SafeDelete(string path, ILogger? logger)
     {
-        if (path is null) return;
+        if (string.IsNullOrWhiteSpace(path)) return;
         try
         {
             File.Delete(path);
         }
         catch (FileNotFoundException) { /* 已不存在，忽略 */ }
-        catch (Exception ex) // 捕捉刪除失敗的例外並記錄
+        catch (Exception ex)
         {
-            logger?.LogWarning(ex, "SafeDelete failed for {path}", path); // 若有 logger 則記錄警告
+            logger?.LogWarning(ex, "SafeDelete failed for {path}", path);
         }
     }
+    #endregion
 }
