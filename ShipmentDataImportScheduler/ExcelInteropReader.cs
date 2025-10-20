@@ -10,12 +10,15 @@ using ExcelDataReader;
 /// </remarks>
 public static class ExcelInteropReader
 {
-    // 靜態建構子：只註冊一次 Encoding provider，避免每次讀檔時重複註冊造成的開銷
+    #region 靜態建構子
+    // 只註冊一次 Encoding provider，避免每次讀檔時重複註冊造成的開銷
     static ExcelInteropReader()
     {
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); // 註冊編碼提供者，支援 ExcelDataReader 解析各種編碼格式
     }
+    #endregion
 
+    #region 主要方法 - 讀取 Excel UsedRange
     /// <summary>
     /// 以唯讀模式開啟指定的 Excel 檔案，讀取工作表的 UsedRange 並回傳底層的 Value2 二維陣列。
     /// </summary>
@@ -78,7 +81,9 @@ public static class ExcelInteropReader
 
         return result;
     }
+    #endregion
 
+    #region 主要方法 - 轉換二維陣列為 DataTable
     /// <summary>
     /// 將 Excel Interop 所回傳的二維物件陣列轉換為 <see cref="DataTable"/>。
     /// </summary>
@@ -164,4 +169,5 @@ public static class ExcelInteropReader
 
         return dt;
     }
+    #endregion
 }
