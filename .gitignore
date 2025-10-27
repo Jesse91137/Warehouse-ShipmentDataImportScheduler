@@ -85,3 +85,7 @@ Thumbs.db
 *.DotSettings
 .github/
 .vscode/
+
+
+# 發布檔案
+Properties/
