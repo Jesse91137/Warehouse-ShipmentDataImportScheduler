@@ -1,5 +1,4 @@
-﻿
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using ShipmentDataImportScheduler;
 using System.Text.RegularExpressions;
@@ -421,6 +420,23 @@ class Program
     /// </remarks>
     private static async Task CopySourceToTempAsync(string source, string dest, int retryCount, int baseDelayMs, ILogger logger)
     {
+        // 若來源為網路路徑且需要帳密，先建立連線
+        if (source.StartsWith(@"\\"))
+        {
+            // TODO: 請填入正確帳號、密碼、(可選)網域
+            string username = "esit"; // ←請改為實際帳號
+            string password = "E$2025mis"; // ←請改為實際密碼
+            string? domain = "es"; // 或 "your_domain"，若有網域
+            try
+            {
+                FileHelpers.ConnectToNetworkPath(System.IO.Path.GetDirectoryName(source) ?? source, username, password, domain);
+                logger.LogInformation("已嘗試以帳密連線網路路徑: {src}", source);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "網路路徑帳密連線失敗: {src}", source);
+            }
+        }
         logger.LogInformation("Copying {src} -> {dst} (overwrite if exists)", source, dest);
         await FileHelpers.CopyFileWithRetryAsync(source, dest, retryCount, baseDelayMs);
     }

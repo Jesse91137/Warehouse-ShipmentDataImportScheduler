@@ -16,6 +16,88 @@ namespace ShipmentDataImportScheduler;
 public static class FileHelpers
 {
 
+    /// <summary>
+    /// 以指定帳號密碼連線網路路徑（SMB），用於需要驗證的網路檔案存取。
+    /// </summary>
+    /// <param name="networkPath">網路路徑（如 \\server\share）</param>
+    /// <param name="username">帳號</param>
+    /// <param name="password">密碼</param>
+    /// <param name="domain">網域（可選）</param>
+    /// <exception cref="Exception">連線失敗時拋出</exception>
+    public static void ConnectToNetworkPath(string networkPath, string username, string password, string? domain = null)
+    {
+        var netResource = new NETRESOURCE
+        {
+            dwType = 1, // RESOURCETYPE_DISK
+            lpRemoteName = networkPath
+        };
+        string user = string.IsNullOrEmpty(domain) ? username : $"{domain}\\{username}";
+        int result = WNetAddConnection2(ref netResource, password, user, 0);
+        if (result != 0 && result != 1219) // 1219: 已有相同使用者連線
+        {
+            throw new Exception($"WNetAddConnection2 failed: {result}");
+        }
+    }
+
+    /// <summary>
+    /// 對應 Windows 網路資源結構（NETRESOURCE），用於網路磁碟連線。
+    /// </summary>
+    /// <remarks>
+    /// 此結構體用於 P/Invoke 呼叫 <c>WNetAddConnection2</c> 以建立或管理網路磁碟連線。
+    /// 欄位需依照 Windows API 文件正確填寫，否則可能導致連線失敗或行為異常。
+    /// </remarks>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct NETRESOURCE
+    {
+        /// <summary>
+        /// 資源範圍（通常不需指定，預設為 0）。
+        /// </summary>
+        public int dwScope;
+        /// <summary>
+        /// 資源型態，1 代表磁碟（RESOURCETYPE_DISK）。
+        /// </summary>
+        public int dwType;
+        /// <summary>
+        /// 顯示型態（通常不需指定，預設為 0）。
+        /// </summary>
+        public int dwDisplayType;
+        /// <summary>
+        /// 使用方式（通常不需指定，預設為 0）。
+        /// </summary>
+        public int dwUsage;
+        /// <summary>
+        /// 本機磁碟機代號（如 "Z:"），若不指定則為 null。
+        /// </summary>
+        public string lpLocalName;
+        /// <summary>
+        /// 遠端網路路徑（如 "\\server\share"）。
+        /// </summary>
+        public string lpRemoteName;
+        /// <summary>
+        /// 備註（可選），通常為 null。
+        /// </summary>
+        public string lpComment;
+        /// <summary>
+        /// 提供者名稱（可選），通常為 null。
+        /// </summary>
+        public string lpProvider;
+    }
+
+    /// <summary>
+    /// 宣告對 Windows 網路資源進行連線的外部函式 <c>WNetAddConnection2</c>。
+    /// </summary>
+    /// <param name="netResource">描述網路資源的 <see cref="NETRESOURCE"/> 結構。</param>
+    /// <param name="password">用於驗證的密碼。</param>
+    /// <param name="username">用於驗證的使用者名稱。</param>
+    /// <param name="flags">控制連線行為的旗標，通常設為 0。</param>
+    /// <returns>若成功則回傳 0，否則回傳錯誤代碼。</returns>
+    /// <remarks>
+    /// 此方法透過 P/Invoke 呼叫 Windows API <c>mpr.dll</c>，用於建立或管理網路磁碟連線。
+    /// 詳細錯誤代碼請參考 Windows 文件。
+    /// </remarks>
+    [System.Runtime.InteropServices.DllImport("mpr.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern int WNetAddConnection2(ref NETRESOURCE netResource, string password, string username, int flags);
+
     #region === 同步檔案複製與重試 ===
     /// <summary>
     /// 複製來源檔案到目的地；若複製失敗，會依設定次數重試，採用簡單的指數退避（exponential backoff）。
