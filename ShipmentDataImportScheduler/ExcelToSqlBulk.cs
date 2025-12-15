@@ -38,7 +38,47 @@ public class ExcelToSqlBulk
     /// <exception cref="InvalidOperationException">當對應的目的欄位在資料庫中找不到時拋出。</exception>
     public async Task BulkInsertDataTableAsync(DataTable table, string targetTableName, Dictionary<string, string>? columnsMapping = null, int batchSize = 2000)
     {
+
+
         if (table == null) throw new ArgumentNullException(nameof(table)); // 檢查資料表是否為 null
+
+        // MVP: 匯入前過濾「機種」為 DBNull 或空白的資料列
+        // 嘗試從 columnsMapping 找到對應「機種」的來源欄位
+        string? machineCol = null;
+        if (columnsMapping != null)
+        {
+            foreach (var kv in columnsMapping)
+            {
+                if (string.Equals(kv.Value, "機種", StringComparison.OrdinalIgnoreCase) && table.Columns.Contains(kv.Key))
+                {
+                    machineCol = kv.Key;
+                    break;
+                }
+            }
+        }
+        else if (table.Columns.Contains("機種"))
+        {
+            machineCol = "機種";
+        }
+
+        if (!string.IsNullOrEmpty(machineCol))
+        {
+            var rows = table.Rows;
+            int removed = 0;
+            for (int i = rows.Count - 1; i >= 0; i--)
+            {
+                var val = rows[i][machineCol];
+                if (val == DBNull.Value || (val is string s && string.IsNullOrWhiteSpace(s)))
+                {
+                    rows.RemoveAt(i);
+                    removed++;
+                }
+            }
+            if (removed > 0)
+            {
+                Console.WriteLine($"[MVP] 已略過 {removed} 筆「機種」為空的資料列，避免匯入失敗。");
+            }
+        }
 
         // 新增異動時間欄位，記錄匯入時間
         // 確保目標欄位存在且為 DateTime，盡量一次取得 now 減少重複呼叫
